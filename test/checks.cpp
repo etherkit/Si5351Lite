@@ -400,6 +400,75 @@ static void test_rebegin() {
   EXPECT(g_clock.test_ms_set(0) == 0);
 }
 
+static void test_crystal_window() {
+  EXPECT(!Si5351Lite::test_feedback_ok(90u, 999998u));
+  EXPECT(Si5351Lite::test_feedback_ok(90u, 0u));
+  EXPECT(Si5351Lite::test_feedback_ok(15u, 1u));
+  EXPECT(!Si5351Lite::test_feedback_ok(14u, 0u));
+  EXPECT(!Si5351Lite::test_feedback_ok(91u, 0u));
+
+  /* 8791209 Hz is outside 25–27 MHz and would be 90 + 999998/1e6. */
+  uint32_t ref = 8791209UL << 2;
+  uint32_t a = 3200000000UL / ref;
+  uint32_t rem = 3200000000UL - (a * ref);
+  uint32_t q = Si5351Lite::test_muldiv_q(rem, 1000000UL, ref);
+  uint32_t r = Si5351Lite::test_muldiv_r(rem, 1000000UL, ref);
+  uint32_t b = q + (r != 0u ? 1u : 0u);
+  EXPECT(a == 90u && b == 999998u);
+  EXPECT(!Si5351Lite::test_feedback_ok(a, b));
+  Si5351Lite::TestPlan plan;
+  EXPECT(!Si5351Lite::test_plan(8791209UL, 0, plan));
+  EXPECT(!Si5351Lite::test_plan(24999999UL, 0, plan));
+  EXPECT(!Si5351Lite::test_plan(27000001UL, 0, plan));
+  EXPECT(Si5351Lite::test_plan(25000000UL, 0, plan));
+  EXPECT(Si5351Lite::test_feedback_ok(plan.a, plan.b));
+  EXPECT(Si5351Lite::test_plan(27000000UL, 0, plan));
+  EXPECT(Si5351Lite::test_feedback_ok(plan.a, plan.b));
+  EXPECT(Si5351Lite::test_plan(26000000UL, 0, plan));
+  EXPECT(plan.a == 30u && plan.b == 769231u);
+
+  g_bus.reset();
+  Si5351Lite raw(g_bus, 0x60);
+  Snap s = snap();
+  EXPECT(!raw.begin(Si5351Lite::Load::LOAD_8PF, 8791209UL, 0));
+  EXPECT(!raw.begin(Si5351Lite::Load::LOAD_8PF, 24999999UL, 0));
+  EXPECT(!raw.begin(Si5351Lite::Load::LOAD_8PF, 27000001UL, 0));
+  EXPECT(quiet(s));
+  EXPECT(raw.pll_hz() == 0);
+
+  const int32_t edges[] = {0, -500000, 500000};
+  const uint32_t xos[] = {25000000UL, 27000000UL};
+  for (uint8_t xi = 0; xi < 2; xi++) {
+    for (uint8_t pi = 0; pi < 3; pi++) {
+      EXPECT(Si5351Lite::test_plan(xos[xi], edges[pi], plan));
+      EXPECT(Si5351Lite::test_feedback_ok(plan.a, plan.b));
+      EXPECT(plan.a >= 15u && plan.a <= 90u);
+      EXPECT(!(plan.a == 90u && plan.b != 0u));
+    }
+  }
+}
+
+#ifndef SI5351LITE_AVR
+static void test_xo_window_sweep() {
+  const int32_t ppb[3] = {0, -500000, 500000};
+  uint32_t n = 0;
+  for (uint32_t xo = 25000000UL; xo <= 27000000UL; xo++) {
+    for (uint8_t i = 0; i < 3; i++) {
+      Si5351Lite::TestPlan plan;
+      if (!Si5351Lite::test_plan(xo, ppb[i], plan) ||
+          !Si5351Lite::test_feedback_ok(plan.a, plan.b) || plan.a < 15u ||
+          plan.a > 90u || (plan.a == 90u && plan.b != 0u)) {
+        printf("window fail xo=%lu ppb=%ld\n", (unsigned long)xo, (long)ppb[i]);
+        g_fails++;
+        return;
+      }
+      n++;
+    }
+  }
+  EXPECT(n == 6000003UL);
+}
+#endif
+
 static void test_ppb_edges() {
   g_bus.reset();
   EXPECT(g_clock.begin(Si5351Lite::Load::LOAD_8PF, 25000000UL, 500000L));
@@ -527,7 +596,9 @@ int run_checks() {
   test_drive_and_integer();
   test_rebegin();
   test_ppb_edges();
+  test_crystal_window();
 #ifndef SI5351LITE_AVR
+  test_xo_window_sweep();
   test_muldiv_oracle();
   test_error_table();
   test_two_objects();

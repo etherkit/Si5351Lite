@@ -202,6 +202,9 @@ int main() {
         if (gap < -1e-9 || !(gap < 0.25 / r_ms)) {
           expect(false, "truncation gap out of range");
         }
+        if (!(hw < 12.53125)) {
+          expect(false, "synth contract ceiling");
+        }
         if (!hw_under_full(ref_q, pll, hz, numer) || !(hw < full_bound)) {
           printf("full fail xo=%lu ppb=%ld hz=%lu hw=%.9f full=%.9f\n",
                  (unsigned long)xo, (long)ppb, (unsigned long)hz, hw,
@@ -300,13 +303,53 @@ int main() {
     }
   }
 
+  /* Sampled grid maxima are not the API ceiling. These two outputs sit
+   * near 12.53 Hz of synthesizer error; calibration is extra. */
+  struct Cite {
+    int32_t ppb;
+    uint32_t hz;
+    double synth_lo;
+    double synth_hi;
+    double total_lo;
+    double total_hi;
+  };
+  const Cite cites[] = {
+      {-10, 99993640ul, 12.528064, 12.528065, 12.528064, 12.528065},
+      {499999, 99993890ul, 12.511509, 12.511510, 13.411004, 13.411005},
+  };
+  for (unsigned i = 0; i < 2; i++) {
+    bus.reset();
+    expect(clock.begin(Si5351Lite::Load::LOAD_8PF, 25000000ul, cites[i].ppb),
+           "cite begin");
+    expect(clock.set_freq(cites[i].hz, Si5351Lite::Clk::CLK0), "cite set");
+    Ratio pll;
+    Ratio ms;
+    expect(decode_block(&bus.regs[26], pll), "cite pll");
+    expect(decode_block(&bus.regs[42], ms), "cite ms");
+    double r_pll = (double)pll.a + (double)pll.b / (double)pll.c;
+    double r_ms = (double)ms.a + (double)ms.b / (double)ms.c;
+    double f_hw = ((double)clock.test_ref_q() / 4.0) * r_pll / r_ms;
+    double phys = 25000000.0 * (1.0 + (double)cites[i].ppb / 1.0e9);
+    double synth = f_hw - (double)cites[i].hz;
+    double total = phys * r_pll / r_ms - (double)cites[i].hz;
+    printf("CITE ppb=%ld hz=%lu synth=%.12f total=%.12f\n", (long)cites[i].ppb,
+           (unsigned long)cites[i].hz, synth, total);
+    if (!(synth > cites[i].synth_lo && synth < cites[i].synth_hi &&
+          total > cites[i].total_lo && total < cites[i].total_hi &&
+          synth < 12.53125)) {
+      expect(false, "cited high-band error");
+    }
+  }
+
   expect(focus_seen == 2, "both focus rows");
   expect(rejects == 0, "no rejects");
   printf("cases %lu rejects %lu\n", (unsigned long)cases, (unsigned long)rejects);
   printf("MS-only bound exceeded %lu (truncation gap, not a second planner)\n",
          (unsigned long)ms_only_exceed);
-  printf("max |hw synth| %.6f  max |gap| %.6f  max |cal| %.6f  max |total| %.6f\n",
-         max_hw, max_gap, max_cal, max_total);
+  printf(
+      "1634-point sample max |hw synth| %.6f |gap| %.6f |cal| %.6f |total| %.6f\n"
+      "sample maxima are not the API ceiling; synth contract is < 12.53125 Hz\n",
+      max_hw, max_gap, max_cal, max_total);
   if (g_fails) {
     printf("DECODE SWEEP FAIL %d\n", g_fails);
     return 1;

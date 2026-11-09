@@ -56,6 +56,8 @@ static const uint32_t kPllTargetQ = 3200000000UL; /* 800 MHz in quarter-hertz */
 static const uint32_t kPllMaxQ = 3600000000UL;    /* 900 MHz in quarter-hertz */
 static const uint32_t kFoutMin = 500000UL;
 static const uint32_t kFoutMax = 100000000UL;
+static const uint32_t kXoMin = 25000000UL;
+static const uint32_t kXoMax = 27000000UL;
 static const int32_t kPpbLimit = 500000L;
 static const uint32_t kDenom = 1000000UL;
 static const uint32_t kPpbDen = 1000000000UL;
@@ -125,6 +127,7 @@ void Si5351Lite::pack(uint32_t a, uint32_t b, uint32_t c, uint8_t *params) {
   uint32_t p3 = c;
   params[0] = (uint8_t)((p3 >> 8) & 0xFFUL);
   params[1] = (uint8_t)(p3 & 0xFFUL);
+  /* Bits 7:2 stay 0: Rx_DIV = 000 (divide by 1) and MSx_DIVBY4 = 00. */
   params[2] = (uint8_t)((p1 >> 16) & 0x03UL);
   params[3] = (uint8_t)((p1 >> 8) & 0xFFUL);
   params[4] = (uint8_t)(p1 & 0xFFUL);
@@ -133,8 +136,21 @@ void Si5351Lite::pack(uint32_t a, uint32_t b, uint32_t c, uint8_t *params) {
   params[7] = (uint8_t)(p2 & 0xFFUL);
 }
 
+/* AN619 §3.2: feedback a+b/c is from 15 through 90. 90 + b/c with b > 0
+ * is above 90. 8791209 Hz at 0 ppb would otherwise be stored as
+ * 90 + 999998/1000000. */
+bool Si5351Lite::feedback_ok(uint32_t a, uint32_t b) {
+  if (a < kPllAMin || a > kPllAMax) {
+    return false;
+  }
+  if (a == kPllAMax && b != 0) {
+    return false;
+  }
+  return true;
+}
+
 bool Si5351Lite::plan_pll(uint32_t xo_hz, int32_t corr_ppb, PllPlan &out) {
-  if (xo_hz == 0 || xo_hz > (0xFFFFFFFFUL >> 2)) {
+  if (xo_hz < kXoMin || xo_hz > kXoMax) {
     return false;
   }
   uint32_t base = xo_hz << 2;
@@ -177,7 +193,7 @@ bool Si5351Lite::plan_pll(uint32_t xo_hz, int32_t corr_ppb, PllPlan &out) {
       c = kDenom;
     }
   }
-  if (a < kPllAMin || a > kPllAMax) {
+  if (!feedback_ok(a, b)) {
     return false;
   }
   /* a is 15..90 and ref is at most the 800 MHz target, so a*ref fits
@@ -526,6 +542,10 @@ uint32_t Si5351Lite::test_muldiv_q(uint32_t a, uint32_t b, uint32_t d) {
 
 uint32_t Si5351Lite::test_muldiv_r(uint32_t a, uint32_t b, uint32_t d) {
   return muldiv_u32(a, b, d).r;
+}
+
+bool Si5351Lite::test_feedback_ok(uint32_t a, uint32_t b) {
+  return feedback_ok(a, b);
 }
 
 bool Si5351Lite::test_plan(uint32_t xo_hz, int32_t ppb, TestPlan &out) {

@@ -73,15 +73,19 @@ class Si5351Lite {
   explicit Si5351Lite(TwoWire &bus = Wire, uint8_t addr = 0x60);
 
   /* Crystal load, nominal crystal hertz, and ppb correction.
-   * Positive corr_ppb means the crystal runs high (v2.5.0 sign).
-   * Accepted ppb is -500000..500000. addr must be 0x60 or 0x61.
+   * xo_hz is inclusive 25000000..27000000. Positive corr_ppb means the
+   * crystal runs high (v2.5.0 sign). Accepted ppb is -500000..500000.
+   * addr must be 0x60 or 0x61. Feedback a+b/c is from 15 through 90,
+   * and 90 is allowed only when b is 0.
    * On success both PLLs hold one ratio and every output is disabled.
-   * On a validation failure the previous successful begin() stays.
-   * On a bus failure the runtime model is dropped (pll_hz() == 0). */
+   * On a validation failure the previous successful begin() stays and
+   * this call does not use the bus. On a bus failure the runtime model
+   * is dropped (pll_hz() is 0). */
   bool begin(Load load, uint32_t xo_hz, int32_t corr_ppb = 0);
 
   /* Program one multisynth, then enable that output.
-   * hz is inclusive 500000..100000000. Does not write PLL registers. */
+   * hz is inclusive 500000..100000000. The multisynth block forces
+   * Rx_DIV to divide-by-1. Does not write PLL registers. */
   bool set_freq(uint32_t hz, Clk clk);
 
   /* on == true requires a successful set_freq on this clock since the
@@ -108,6 +112,7 @@ class Si5351Lite {
   static uint32_t test_muldiv_q(uint32_t a, uint32_t b, uint32_t d);
   static uint32_t test_muldiv_r(uint32_t a, uint32_t b, uint32_t d);
   static bool test_plan(uint32_t xo_hz, int32_t ppb, TestPlan &out);
+  static bool test_feedback_ok(uint32_t a, uint32_t b);
   uint32_t test_ref_q() const { return ref_q_; }
   uint32_t test_pll_q() const { return pll_q_; }
   uint8_t test_begun() const { return begun_; }
@@ -142,6 +147,7 @@ class Si5351Lite {
   bool addr_ok() const;
 
   static QR muldiv_u32(uint32_t a, uint32_t b, uint32_t d);
+  static bool feedback_ok(uint32_t a, uint32_t b);
   static bool plan_pll(uint32_t xo_hz, int32_t corr_ppb, PllPlan &out);
   bool plan_ms(uint32_t hz, MsPlan &ms) const;
   static void pack(uint32_t a, uint32_t b, uint32_t c, uint8_t *params);

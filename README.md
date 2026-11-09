@@ -35,11 +35,12 @@ void loop() {
 }
 ```
 
-`begin(load, xo_hz)` is zero correction. `set_freq` does not write either
-PLL. Changing `corr_ppb` means calling `begin` again and then `set_freq`
-for each output. See `docs/DESIGN.md` for the quarter-hertz model, the
-register-decoded error bound, and what a `false` return does and does not
-promise.
+`begin(load, xo_hz)` is zero correction. `xo_hz` must be 25000000 through
+27000000 inclusive. Output hertz are 500000 through 100000000 inclusive,
+with the R divider forced to 1. `set_freq` does not write either PLL.
+Changing `corr_ppb` means calling `begin` again and then `set_freq` for
+each output. The synthesizer term is below 12.53125 Hz; calibration
+remainder is additional. See `docs/DESIGN.md`.
 
 `examples/Tuning` is an ATtiny3226 walk of nine HF frequencies. No Serial
 and no display. Default Wire pins on this part in megaTinyCore are SDA PB1
@@ -62,10 +63,10 @@ and:
 arduino-cli compile --fqbn megaTinyCore:megaavr:atxy6:chip=3226,clock=20internal,millis=enabled,wiremode=mors,printf=default --library . examples/Tuning
 ```
 
-Flash claim for that compile is the CLI line **Sketch uses 4892 bytes**
-(`.text + .rodata + .data`). RAM is **103 bytes** (`.data + .bss`).
-Details and the reason `.text + .data` alone is the wrong flash total are
-in `docs/DESIGN.md`.
+Flash claim for that compile is the CLI line **Sketch uses 4926 bytes**
+(`.text` 4864 + mapped `.rodata` 54 + `.data` 8). RAM is **103 bytes**
+(`.data + .bss`). `docs/DESIGN.md` is the contract, including the
+25–27 MHz crystal window and the 12.53125 Hz synthesizer ceiling.
 
 `test/decode_sweep` is the bound evidence: it decodes PLL and multisynth
 parameter blocks from the bytes the compiled library wrote. `test/sweep.py`
