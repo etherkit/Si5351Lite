@@ -1,0 +1,24 @@
+{
+  "name": "Etherkit Si5351Lite",
+  "keywords": "si5351,clock,pll",
+  "description": "Fixed-PLL Si5351 helper with whole-hertz tuning on CLK0-CLK5. Derived from Etherkit Si5351Arduino v2.5.0. Review build, not a hardware proof.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/etherkit/Si5351Lite"
+  },
+  "authors": [
+    {
+      "name": "Jason Milldrum",
+      "email": "milldrum@gmail.com",
+      "maintainer": true
+    },
+    {
+      "name": "Dana H. Myers",
+      "email": "k6jq@comcast.net"
+    }
+  ],
+  "version": "0.1.0",
+  "license": "GPL-3.0-or-later",
+  "frameworks": "arduino",
+  "platforms": "*"
+}

@@ -1,0 +1,8 @@
+/build/
+/test/host_test
+__pycache__/
+*.pyc
+*.elf
+*.hex
+*.o
+*.d
