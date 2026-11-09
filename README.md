@@ -44,7 +44,8 @@ remainder is additional. See `docs/DESIGN.md`.
 
 `examples/Tuning` is an ATtiny3226 walk of nine HF frequencies. No Serial
 and no display. Default Wire pins on this part in megaTinyCore are SDA PB1
-and SCL PB0.
+and SCL PB0. CLK0–CLK5 is the call set. A 3-output 10-MSOP only has CLK0–CLK2
+bonded out; `begin()` leaves CLK3–CLK5 powered down for that package.
 
 ## Reproduce
 
@@ -63,8 +64,8 @@ and:
 arduino-cli compile --fqbn megaTinyCore:megaavr:atxy6:chip=3226,clock=20internal,millis=enabled,wiremode=mors,printf=default --library . examples/Tuning
 ```
 
-Flash claim for that compile is the CLI line **Sketch uses 4926 bytes**
-(`.text` 4864 + mapped `.rodata` 54 + `.data` 8). RAM is **103 bytes**
+Flash claim for that compile is the CLI line **Sketch uses 4896 bytes**
+(`.text` 4834 + mapped `.rodata` 54 + `.data` 8). RAM is **103 bytes**
 (`.data + .bss`). `docs/DESIGN.md` is the contract, including the
 25–27 MHz crystal window and the 12.53125 Hz synthesizer ceiling.
 

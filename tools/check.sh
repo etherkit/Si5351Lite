@@ -38,6 +38,51 @@ if grep -nE 'uint64|int64|long long|\bfloat\b|\bdouble\b|\bmalloc\b|\bnew\b|#def
 fi
 echo "src scan clean"
 
+# Require a finished simulator run: g_fails printed as 0 and g_checks >= 1.
+sim_result_ok() {
+  log=$1
+  fails=$(awk '/^\$1 = / { print $3; exit }' "$log")
+  checks=$(awk '/^\$2 = / { print $3; exit }' "$log")
+  case "$fails" in
+    0) ;;
+    *)
+      echo "simulator g_fails=${fails:-missing}" >&2
+      return 1
+      ;;
+  esac
+  case "$checks" in
+    ''|*[!0-9]*)
+      echo "simulator g_checks missing or not a number" >&2
+      return 1
+      ;;
+  esac
+  if [ "$checks" -lt 1 ]; then
+    echo "simulator g_checks=$checks incomplete" >&2
+    return 1
+  fi
+  echo "simulator g_fails=$fails g_checks=$checks"
+}
+
+echo "== simulator guard self-test =="
+GUARD_DIR=$(mktemp -d)
+printf '%s\n' '$1 = 4' '$2 = 12' > "$GUARD_DIR/nonzero.txt"
+if sim_result_ok "$GUARD_DIR/nonzero.txt"; then
+  echo "guard missed nonzero g_fails" >&2
+  exit 1
+fi
+printf '%s\n' '$1 = 0' > "$GUARD_DIR/missing.txt"
+if sim_result_ok "$GUARD_DIR/missing.txt"; then
+  echo "guard missed missing g_checks" >&2
+  exit 1
+fi
+printf '%s\n' '$1 = 0' '$2 = 0' > "$GUARD_DIR/zero.txt"
+if sim_result_ok "$GUARD_DIR/zero.txt"; then
+  echo "guard missed zero g_checks" >&2
+  exit 1
+fi
+rm -rf "$GUARD_DIR"
+echo "simulator guard rejected nonzero, missing, and zero results"
+
 echo "== AVR 16-bit int simavr =="
 "$AVR_BIN/avr-g++" -std=gnu++11 -Wall -Wextra -Werror -Os -g -mmcu=atmega328p \
   -fno-exceptions -fno-rtti -ffunction-sections -fdata-sections \
@@ -60,9 +105,16 @@ timeout 30 avr-gdb -batch -nx \
   -ex "continue" \
   -ex "print g_fails" \
   -ex "print g_checks" \
-  -ex "quit"
+  -ex "quit" > /tmp/si5351lite_gdb.txt
+GDB_RC=$?
 kill "$SIM_PID" >/dev/null 2>&1 || true
 wait "$SIM_PID" >/dev/null 2>&1 || true
+cat /tmp/si5351lite_gdb.txt
+if [ "$GDB_RC" -ne 0 ]; then
+  echo "avr-gdb exit $GDB_RC" >&2
+  exit 1
+fi
+sim_result_ok /tmp/si5351lite_gdb.txt
 
 echo "== ATtiny3226 =="
 FQBN=megaTinyCore:megaavr:atxy6:chip=3226,clock=20internal,millis=enabled,wiremode=mors,printf=default

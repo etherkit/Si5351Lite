@@ -151,12 +151,12 @@ static void test_begin_image() {
   EXPECT(g_bus.regs[162] == 0 && g_bus.regs[163] == 0 && g_bus.regs[164] == 0);
   EXPECT(g_bus.regs[177] == 0xA0);
   EXPECT(g_bus.regs[3] == 0xFF);
+  for (uint8_t i = 0; i < 8; i++) {
+    EXPECT(g_bus.regs[16 + i] == 0x80);
+  }
   for (uint8_t i = 0; i < 6; i++) {
-    EXPECT(g_bus.regs[16 + i] == 0x0C);
     EXPECT(g_clock.test_ms_set(i) == 0);
   }
-  EXPECT(g_bus.regs[22] == 0x80);
-  EXPECT(g_bus.regs[23] == 0x80);
   EXPECT(g_bus.log_overflow == 0);
   EXPECT(g_bus.begin_calls == 1);
   EXPECT(g_bus.log_n > 0 && g_bus.log[0].addr == 0x60 && g_bus.log[0].n == 0);
@@ -334,7 +334,7 @@ static void test_tuning_independence() {
 static void test_drive_and_integer() {
   EXPECT(begin25());
   EXPECT(g_clock.set_drive(Si5351Lite::Clk::CLK0, Si5351Lite::Drive::DRIVE_8MA));
-  EXPECT(g_bus.regs[16] == 0x0F);
+  EXPECT(g_bus.regs[16] == 0x83);
   EXPECT(g_clock.set_freq(14074000UL, Si5351Lite::Clk::CLK0));
   EXPECT(g_bus.regs[16] == 0x0F);
   EXPECT(region_is(42, kMs14, 8));
@@ -371,7 +371,7 @@ static void test_rebegin() {
   EXPECT(g_clock.begin(Si5351Lite::Load::LOAD_8PF, 25000000UL, 37));
   EXPECT(g_clock.pll_hz() == 800000024UL);
   EXPECT(g_bus.regs[3] == 0xFF);
-  EXPECT(g_bus.regs[16] == 0x0C);
+  EXPECT(g_bus.regs[16] == 0x80);
   EXPECT(g_clock.test_ms_set(0) == 0);
   Snap s = snap();
   EXPECT(!g_clock.output_enable(Si5351Lite::Clk::CLK0, true));
@@ -385,7 +385,33 @@ static void test_rebegin() {
   EXPECT(!g_clock.begin(Si5351Lite::Load::LOAD_8PF, 25000000UL, 500001L));
   EXPECT(g_clock.pll_hz() == keep);
   EXPECT(g_bus.regs[3] == oe);
+  EXPECT(g_clock.test_ms_set(0) == 1);
   EXPECT(quiet(held));
+
+  /* A failed re-begin clears the model but does not mute the pin.
+   * output_enable(false) refuses while begun is clear. */
+  uint8_t enabled = g_bus.regs[3];
+  EXPECT((enabled & 0x01) == 0);
+  g_bus.fail_on_end = (uint16_t)(g_bus.end_calls + 1);
+  EXPECT(!g_clock.begin(Si5351Lite::Load::LOAD_8PF, 25000000UL, 0));
+  EXPECT(g_clock.pll_hz() == 0);
+  EXPECT(g_clock.test_begun() == 0);
+  EXPECT(g_bus.regs[3] == enabled);
+  g_bus.fail_on_end = 0;
+  Snap mute = snap();
+  EXPECT(!g_clock.output_enable(Si5351Lite::Clk::CLK0, false));
+  EXPECT(quiet(mute));
+  EXPECT(g_bus.regs[3] == enabled);
+
+  EXPECT(g_clock.begin(Si5351Lite::Load::LOAD_8PF, 25000000UL, 0));
+  EXPECT(g_clock.set_freq(10000000UL, Si5351Lite::Clk::CLK0));
+  uint32_t held_pll = g_clock.pll_hz();
+  g_bus.arm_bulk_fail = 1;
+  g_bus.bulk_keep = 0;
+  EXPECT(!g_clock.set_freq(7074000UL, Si5351Lite::Clk::CLK0));
+  EXPECT(g_clock.pll_hz() == held_pll);
+  EXPECT(g_clock.test_begun() == 1);
+  EXPECT(g_clock.test_ms_set(0) == 0);
 
   g_bus.fail_on_end = (uint16_t)(g_bus.end_calls + 4);
   g_bus.partial_data = 0;
@@ -398,6 +424,11 @@ static void test_rebegin() {
   EXPECT(g_clock.set_freq(7074000UL, Si5351Lite::Clk::CLK4));
   EXPECT(g_clock.test_ms_set(4) == 1);
   EXPECT(g_clock.test_ms_set(0) == 0);
+  EXPECT((g_bus.regs[20] & 0x80) == 0);
+  EXPECT(g_bus.regs[19] == 0x80);
+  EXPECT(g_bus.regs[21] == 0x80);
+  EXPECT(g_bus.regs[22] == 0x80);
+  EXPECT(g_bus.regs[23] == 0x80);
 }
 
 static void test_crystal_window() {

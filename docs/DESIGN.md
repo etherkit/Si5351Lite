@@ -41,11 +41,15 @@ window. Every nominal hertz from 25000000 through 27000000 at ppb
 `{0, −500000, +500000}` — 6000003 plans — produces a legal ratio. That
 sweep is necessary, not a sample of the error bound.
 
-`false` from validation does not call `Wire.begin()` and does not change a
-previous successful model. `false` after a transaction has started does not
-mean the chip is unchanged. A bus failure drops the model (`pll_hz()` is 0).
-A failed `set_freq` does not clear `begun` and clears that clock's
-programmed mark.
+Validation failure does not call `Wire.begin()`, does not change a previous
+successful PLL model, and does not clear clock marks. A `set_freq` bus
+failure keeps that PLL model (`begun` stays set) and clears only that
+clock's programmed mark; the chip may already hold a prefix of the new
+multisynth bytes. Only a `begin` failure after the first bus transaction
+clears the model, so `pll_hz()` becomes 0. That zero is not a muted pin.
+`output_enable(false)` returns without a transfer while `begun` is clear,
+including after that failed re-begin, so an output enabled by an earlier
+`set_freq` can still be running.
 
 ## 500000 Hz
 
@@ -137,16 +141,34 @@ enable is the logical OR of that bit and the SSEN pin. Clearing the
 register does not turn spread spectrum off if the board holds SSEN high.
 The library assumes SSEN is not asserted.
 
+## Packages
+
+The call `set_freq(hz, CLK0)` through `CLK5` is the API. It is not a claim
+that every Si5351A bond-out has six clock pins.
+
+| Part | Package | Pins this library can drive | Init requirement |
+|---|---|---|---|
+| Si5351A-B-GT | 10-MSOP, 3 outputs | CLK0, CLK1, CLK2 | AN619 register 19, 20, and 21: write `CLK3_PDN`, `CLK4_PDN`, and `CLK5_PDN` to 1. CLK6 and CLK7 have no pins either. |
+| Si5351A 8-output | 20-QFN (and the 16-QFN programming note in AN1234, not repeated here) | CLK0–CLK5 are real pads. CLK6 and CLK7 exist and stay powered down; this library has no CLK6/7 API. | Power a CLK3, CLK4, or CLK5 driver only when that output is programmed. |
+
+`begin()` writes `0x80` to registers 16–23, so every driver starts powered
+down, including CLK4 and CLK5. `set_freq` clears power-down only on the one
+CLK0–5 it programs and forces that driver to the multisynth. On a 10-MSOP,
+call only CLK0–CLK2. Calling CLK3, CLK4, or CLK5 there powers a driver AN619
+says to leave down; the API still accepts those enumerators for the
+8-output packages.
+
 ## Initialization
 
 `begin` checks load, address, ppb, the 25–27 MHz window, and the feedback
 ratio before any Wire call. Then: address probe, at most 32 reads of
 register 0 until `SYS_INIT` is clear, output-enable `0xFF`, power-down of
-CLK0–7, crystal load in register 183 with bits 5:0 set to `010010b`,
-register 15 cleared so both PLLs use the crystal, spread-spectrum `SSC_EN`
-cleared by a read-modify-write, registers 162–164 written 0, both PLL
-blocks, PLL reset `0xA0`, CLK0–5 set to `0x0C`, CLK6–7 left powered down,
-and output-enable `0xFF` again. Outputs stay disabled until `set_freq`.
+CLK0–7 (`0x80` in registers 16–23), crystal load in register 183 with bits
+5:0 set to `010010b`, register 15 cleared so both PLLs use the crystal,
+spread-spectrum `SSC_EN` cleared by a read-modify-write, registers 162–164
+written 0, both PLL blocks, PLL reset `0xA0`, and output-enable `0xFF`
+again. Drivers stay powered down. `set_freq` is what powers one CLK0–5
+driver and then clears that output's disable bit.
 
 A NACK can leave a prefix of those writes in the chip. The library does
 not read the map back.
@@ -168,13 +190,13 @@ megaTinyCore:megaavr:atxy6:chip=3226,clock=20internal,millis=enabled,wiremode=mo
 
 | Section | Bytes | Address |
 |---|---:|---:|
-| `.text` | 4864 | 0 |
-| `.rodata` | 54 | 37632 (`0x8000 + 4864`) |
+| `.text` | 4834 | 0 |
+| `.rodata` | 54 | 37602 (`0x8000 + 4834`) |
 | `.data` | 8 | RAM initializer, also in flash |
 | `.bss` | 95 | RAM |
 
-CLI reports **Sketch uses 4926 bytes**. That is `.text + .rodata + .data`
-and is the flash figure. RAM is `.data + .bss` = **103** of 3072. 4926 is
+CLI reports **Sketch uses 4896 bytes**. That is `.text + .rodata + .data`
+and is the flash figure. RAM is `.data + .bss` = **103** of 3072. 4896 is
 under 8192.
 
 `avr-nm` shows `__mulsi3`, `__udivmodsi4`, and the 16×16→32 pieces

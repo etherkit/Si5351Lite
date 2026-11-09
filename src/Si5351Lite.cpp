@@ -339,11 +339,14 @@ bool Si5351Lite::probe() {
 }
 
 /*
- * Safe order: disable pins, power the drivers down, select the crystal,
+ * Safe order: disable pins, power every driver down, select the crystal,
  * clear spread-spectrum enable, clear the VCXO word, program both PLLs,
- * reset both PLLs, then power CLK0-5 as multisynth/PLLA/2 mA.
- * CLK6-7 stay powered down. Register 3 is written again at the end so a
- * pin cannot be enabled before a multisynth is programmed.
+ * reset both PLLs. Drivers stay powered down here. set_freq powers only
+ * the CLK0-5 driver it programs. On the 3-output 10-MSOP, CLK3-5 have no
+ * pin and AN619 requires those PDN bits to remain 1 unless a sketch
+ * deliberately programs them on an 8-output package.
+ * Register 3 is written again at the end so a pin cannot be enabled
+ * before a multisynth is programmed.
  * Any false return may have committed a prefix of these writes.
  */
 bool Si5351Lite::bringup(Load load, const PllPlan &plan) {
@@ -399,14 +402,6 @@ bool Si5351Lite::bringup(Load load, const PllPlan &plan) {
   if (!write8(kRegPllReset, kPllResetBoth)) {
     return false;
   }
-
-  uint8_t ctrl[6];
-  for (uint8_t i = 0; i < 6; i++) {
-    ctrl[i] = kClkRun;
-  }
-  if (!write_n(kRegClk0, ctrl, 6)) {
-    return false;
-  }
   if (!write8(kRegOe, 0xFF)) {
     return false;
   }
@@ -420,7 +415,7 @@ void Si5351Lite::commit(const PllPlan &plan) {
   begun_ = 1;
   for (uint8_t i = 0; i < 6; i++) {
     ms_set_[i] = 0;
-    clk_ctrl_[i] = kClkRun;
+    clk_ctrl_[i] = kClkPd;
   }
 }
 
@@ -431,7 +426,7 @@ void Si5351Lite::clear_runtime() {
   begun_ = 0;
   for (uint8_t i = 0; i < 6; i++) {
     ms_set_[i] = 0;
-    clk_ctrl_[i] = kClkRun;
+    clk_ctrl_[i] = kClkPd;
   }
 }
 
@@ -472,13 +467,12 @@ bool Si5351Lite::set_freq(uint32_t hz, Clk clk) {
     return false;
   }
 
-  /* AN619 4.1.2.1: MSx_INT may be set for an even integer divider.
-   * Odd integers stay with the bit clear. Fractional b != 0 clears it. */
-  uint8_t ctrl = clk_ctrl_[n];
+  /* Power this driver only. 0x0C is multisynth, PLLA, powered, 2 mA
+   * before the saved drive bits replace bits 1:0. AN619 4.1.2.1: MSx_INT
+   * may be set for an even integer. Odd integers keep the bit clear. */
+  uint8_t ctrl = (uint8_t)(kClkRun | (clk_ctrl_[n] & 0x03u));
   if (ms.b == 0 && (ms.a & 1UL) == 0) {
     ctrl = (uint8_t)(ctrl | kClkInt);
-  } else {
-    ctrl = (uint8_t)(ctrl & (uint8_t)~kClkInt);
   }
   if (!write8((uint8_t)(kRegClk0 + n), ctrl)) {
     ms_set_[n] = 0;

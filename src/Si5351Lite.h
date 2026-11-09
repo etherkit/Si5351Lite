@@ -88,9 +88,13 @@ class Si5351Lite {
    * Rx_DIV to divide-by-1. Does not write PLL registers. */
   bool set_freq(uint32_t hz, Clk clk);
 
-  /* on == true requires a successful set_freq on this clock since the
-   * last begin(), and since the last set_freq that failed on the bus.
-   * on == false disables the pin. The next successful set_freq enables it. */
+  /* on == true writes the enable bit only after begin() has succeeded and
+   * this clock's latest set_freq completed. Otherwise it returns false
+   * and does not use the bus.
+   * on == false writes the disable bit only while begin() is currently
+   * successful. After a failed begin, begun is clear, so this returns
+   * false and sends nothing. pll_hz() == 0 is not a muted pin: a failed
+   * re-begin can leave an earlier enable in the chip. */
   bool output_enable(Clk clk, bool on);
 
   /* Drive bits only. Integer-mode and source bits already stored are kept. */
